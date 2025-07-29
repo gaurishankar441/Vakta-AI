@@ -1,0 +1,233 @@
+# streamlit_app/app_with_auth.py
+
+import streamlit as st
+import requests
+import json
+from datetime import datetime
+
+# Backend API base URL
+API_BASE_URL = "http://localhost:8000"
+
+# Initialize session state
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'access_token' not in st.session_state:
+    st.session_state.access_token = None
+if 'user_info' not in st.session_state:
+    st.session_state.user_info = None
+
+def make_api_request(endpoint, method="GET", data=None, auth_required=False):
+    """Make API request to FastAPI backend"""
+    url = f"{API_BASE_URL}{endpoint}"
+    headers = {"Content-Type": "application/json"}
+    
+    if auth_required and st.session_state.access_token:
+        headers["Authorization"] = f"Bearer {st.session_state.access_token}"
+    
+    try:
+        if method == "POST":
+            response = requests.post(url, json=data, headers=headers)
+        elif method == "GET":
+            response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            return True, response.json()
+        else:
+            return False, response.json()
+    except requests.exceptions.RequestException as e:
+        return False, {"detail": f"Connection error: {str(e)}"}
+
+def register_user(username, email, full_name, password, primary_lang, target_lang):
+    """Register new user"""
+    data = {
+        "username": username,
+        "email": email,
+        "full_name": full_name,
+        "password": password,
+        "primary_language": primary_lang,
+        "target_language": target_lang
+    }
+    return make_api_request("/register", method="POST", data=data)
+
+def login_user(username, password):
+    """Login user and get access token"""
+    # FastAPI expects form data for token endpoint
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/token",
+            data={"username": username, "password": password}
+        )
+        if response.status_code == 200:
+            return True, response.json()
+        else:
+            return False, response.json()
+    except requests.exceptions.RequestException as e:
+        return False, {"detail": f"Connection error: {str(e)}"}
+
+def get_user_profile():
+    """Get current user profile"""
+    return make_api_request("/me", auth_required=True)
+
+def send_chat_message(message):
+    """Send chat message to AI"""
+    data = {"def send_chat_message(message):
+    """Send chat message to AI"""
+    data = {"message": message}  # FIXED: Changed from "user_input_text" to "message"
+    return make_api_request("/chat", method="POST", data=data, auth_required=True)user_input_text": message}
+    return make_api_request("/chat", method="POST", data=data, auth_required=True)
+
+def show_login_page():
+    """Display login/register interface"""
+    st.title("🧠 Vakta AI - Language Learning Assistant")
+    
+    tab1, tab2 = st.tabs(["Login", "Register"])
+    
+    with tab1:
+        st.subheader("Login to Your Account")
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            login_btn = st.form_submit_button("Login")
+            
+            if login_btn:
+                if username and password:
+                    success, response = login_user(username, password)
+                    if success:
+                        st.session_state.access_token = response["access_token"]
+                        st.session_state.authenticated = True
+                        st.success("Login successful!")
+                        st.rerun()
+                    else:
+                        st.error(f"Login failed: {response.get('detail', 'Unknown error')}")
+                else:
+                    st.error("Please fill all fields")
+    
+    with tab2:
+        st.subheader("Create New Account")
+        with st.form("register_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                reg_username = st.text_input("Username", key="reg_username")
+                reg_email = st.text_input("Email", key="reg_email")
+                reg_fullname = st.text_input("Full Name", key="reg_fullname")
+            with col2:
+                reg_password = st.text_input("Password", type="password", key="reg_password")
+                primary_lang = st.selectbox("Primary Language", ["hi", "en"], key="primary")
+                target_lang = st.selectbox("Target Language", ["en", "hi"], key="target")
+            
+            register_btn = st.form_submit_button("Create Account")
+            
+            if register_btn:
+                if all([reg_username, reg_email, reg_fullname, reg_password]):
+                    success, response = register_user(
+                        reg_username, reg_email, reg_fullname, 
+                        reg_password, primary_lang, target_lang
+                    )
+                    if success:
+                        st.success("Account created successfully! Please login.")
+                    else:
+                        st.error(f"Registration failed: {response.get('detail', 'Unknown error')}")
+                else:
+                    st.error("Please fill all fields")
+
+def show_main_app():
+    """Display main application interface"""
+    # Get user profile
+    if not st.session_state.user_info:
+        success, user_data = get_user_profile()
+        if success:
+            st.session_state.user_info = user_data
+        else:
+            st.error("Failed to get user profile")
+            st.session_state.authenticated = False
+            st.rerun()
+    
+    # Header with user info and logout
+    col1, col2, col3 = st.columns([3, 1, 1])
+    with col1:
+        st.title(f"🧠 Vakta AI - Welcome {st.session_state.user_info.get('full_name', 'User')}")
+    with col2:
+        st.metric("Level", st.session_state.user_info.get('current_level', 'beginner').title())
+    with col3:
+        if st.button("Logout"):
+            st.session_state.authenticated = False
+            st.session_state.access_token = None
+            st.session_state.user_info = None
+            st.rerun()
+    
+    # User stats
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Sessions", st.session_state.user_info.get('total_sessions', 0))
+    with col2:
+        st.metric("Primary Language", st.session_state.user_info.get('primary_language', 'hi').upper())
+    with col3:
+        st.metric("Target Language", st.session_state.user_info.get('target_language', 'en').upper())
+    
+    st.divider()
+    
+    # Chat Interface
+    st.subheader("🗣️ Practice Conversation")
+    
+    # Initialize chat history
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    
+    # Display chat history
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+            if message["role"] == "assistant" and "score" in message:
+                st.caption(f"Fluency Score: {message['score']}/100")
+    
+    # Chat input
+    if prompt := st.chat_input("Type your message here..."):
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # Display user message
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        
+        # Get AI response
+        with st.chat_message("assistant"):
+            with st.spinner("AI is thinking..."):
+                success, response = send_chat_message(prompt)
+                
+                if success:
+                    ai_response = response["ai_response"]
+                    fluency_score = response["fluency_score"]
+                    
+                    st.markdown(ai_response)
+                    st.caption(f"Fluency Score: {fluency_score}/100")
+                    
+                    # Add assistant response to chat history
+                    st.session_state.messages.append({
+                        "role": "assistant", 
+                        "content": ai_response,
+                        "score": fluency_score
+                    })
+                else:
+                    error_msg = "Sorry, I couldn't process your message. Please try again."
+                    st.error(error_msg)
+                    st.session_state.messages.append({
+                        "role": "assistant", 
+                        "content": error_msg
+                    })
+
+def main():
+    """Main application logic"""
+    st.set_page_config(
+        page_title="Vakta AI", 
+        page_icon="🧠", 
+        layout="wide"
+    )
+    
+    # Check authentication status
+    if not st.session_state.authenticated:
+        show_login_page()
+    else:
+        show_main_app()
+
+if __name__ == "__main__":
+    main()
