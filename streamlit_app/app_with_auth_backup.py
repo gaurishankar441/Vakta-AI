@@ -1,4 +1,4 @@
-# app_with_auth.py - Complete Avatar-Enhanced Vakta AI
+# app_with_auth.py - Complete Avatar-Enhanced Vakta AI with LARGE AVATAR DISPLAY
 import streamlit as st
 import requests
 import json
@@ -25,11 +25,11 @@ AVATAR_PERSONALITIES = {
         "emoji_base": "👩‍🏫",
         "expressions": {
             "neutral": "👩‍🏫",
-            "happy": "😊👩‍🏫",
-            "excited": "🤩👩‍🏫", 
-            "thinking": "🤔👩‍🏫",
-            "celebrating": "🎉👩‍🏫",
-            "encouraging": "💪👩‍🏫"
+            "happy": "😊",
+            "excited": "🤩", 
+            "thinking": "🤔",
+            "celebrating": "🎉",
+            "encouraging": "💪"
         }
     },
     "alex": {
@@ -40,11 +40,11 @@ AVATAR_PERSONALITIES = {
         "emoji_base": "👨‍🏫",
         "expressions": {
             "neutral": "👨‍🏫",
-            "happy": "😄👨‍🏫",
-            "excited": "⭐👨‍🏫",
-            "thinking": "💭👨‍🏫", 
-            "celebrating": "🏆👨‍🏫",
-            "encouraging": "👍👨‍🏫"
+            "happy": "😄",
+            "excited": "⭐",
+            "thinking": "💭", 
+            "celebrating": "🏆",
+            "encouraging": "👍"
         }
     },
     "maya": {
@@ -55,20 +55,42 @@ AVATAR_PERSONALITIES = {
         "emoji_base": "👱‍♀️",
         "expressions": {
             "neutral": "👱‍♀️",
-            "happy": "😁👱‍♀️",
-            "excited": "🎊👱‍♀️",
-            "thinking": "🧠👱‍♀️",
-            "celebrating": "🎈👱‍♀️", 
-            "encouraging": "🌟👱‍♀️"
+            "happy": "😁",
+            "excited": "🎊",
+            "thinking": "🧠",
+            "celebrating": "🎈", 
+            "encouraging": "🌟"
         }
     }
 }
 
-# CSS for avatar animations
+# Enhanced CSS for better avatar display
 AVATAR_CSS = """
 <style>
-.avatar-container {
-    animation: gentle-bounce 2s ease-in-out infinite;
+.avatar-main {
+    text-align: center;
+    margin: 2rem 0;
+    animation: gentle-bounce 3s ease-in-out infinite;
+}
+
+.avatar-large {
+    font-size: 6rem !important;
+    line-height: 1.2;
+    margin: 1rem 0;
+    filter: drop-shadow(4px 4px 8px rgba(0,0,0,0.15));
+}
+
+.avatar-medium {
+    font-size: 3rem !important;
+    line-height: 1.2;
+    margin: 0.5rem 0;
+    filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.1));
+}
+
+.avatar-small {
+    font-size: 2rem !important;
+    line-height: 1.2;
+    margin: 0.25rem 0;
 }
 
 @keyframes gentle-bounce {
@@ -76,15 +98,15 @@ AVATAR_CSS = """
         transform: translateY(0);
     }
     40% {
-        transform: translateY(-5px);
+        transform: translateY(-8px);
     }
     60% {
-        transform: translateY(-3px);
+        transform: translateY(-4px);
     }
 }
 
 .avatar-speaking {
-    animation: speaking-pulse 1s ease-in-out infinite;
+    animation: speaking-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes speaking-pulse {
@@ -92,17 +114,27 @@ AVATAR_CSS = """
         transform: scale(1);
     }
     50% {
-        transform: scale(1.05);
+        transform: scale(1.1);
     }
 }
 
 .response-container {
-    animation: fade-in 0.5s ease-in;
+    animation: fade-in 0.6s ease-in;
 }
 
 @keyframes fade-in {
-    from { opacity: 0; transform: translateY(10px); }
+    from { opacity: 0; transform: translateY(15px); }
     to { opacity: 1; transform: translateY(0); }
+}
+
+.avatar-card {
+    background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(248,249,250,0.9));
+    backdrop-filter: blur(10px);
+    border-radius: 20px;
+    padding: 2rem;
+    margin: 1rem 0;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
 }
 
 .main-header {
@@ -111,16 +143,15 @@ AVATAR_CSS = """
     margin-bottom: 2rem;
 }
 
-.metric-card {
-    background-color: #f0f2f6;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    border-left: 4px solid #1E88E5;
-}
-
 .stButton > button {
     width: 100%;
     border-radius: 20px;
+    transition: all 0.3s ease;
+}
+
+.stButton > button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 </style>
 """
@@ -215,24 +246,35 @@ def get_avatar_expression(fluency_score, is_speaking=False):
     else:
         return "neutral"
 
-def display_avatar(expression="neutral", size="large", show_name=True):
-    """Display avatar with current expression"""
+def display_avatar(expression="neutral", size="large", show_name=True, animated=True):
+    """Enhanced avatar display with better visibility"""
     avatar_config = AVATAR_PERSONALITIES[st.session_state.selected_avatar]
-    avatar_emoji = avatar_config["expressions"].get(expression, avatar_config["emoji_base"])
     
-    size_style = {
-        "small": "font-size: 2rem;",
-        "medium": "font-size: 3rem;", 
-        "large": "font-size: 4rem;"
-    }
+    # Get the right emoji based on expression
+    if expression in avatar_config["expressions"]:
+        avatar_emoji = avatar_config["expressions"][expression]
+    else:
+        avatar_emoji = avatar_config["emoji_base"]
     
+    # Animation class
+    animation_class = "avatar-speaking" if expression == "thinking" else ""
+    
+    # Create enhanced avatar HTML
     avatar_html = f"""
-    <div class="avatar-container" style="text-align: center; margin: 1rem 0;">
-        <div style="{size_style[size]} margin-bottom: 0.5rem;">
-            {avatar_emoji}
+    <div class="avatar-main {animation_class}">
+        <div class="avatar-card" style="background: linear-gradient(135deg, {avatar_config['color']}15, {avatar_config['color']}05);">
+            <div class="avatar-{size}">
+                {avatar_emoji}
+            </div>
+            {f'''
+            <h3 style="margin: 0.5rem 0; color: {avatar_config["color"]}; font-weight: bold;">
+                {avatar_config["name"]}
+            </h3>
+            <p style="margin: 0; font-size: 1rem; color: #666; font-style: italic;">
+                {avatar_config["description"]}
+            </p>
+            ''' if show_name else ''}
         </div>
-        {f'<p style="margin: 0; color: {avatar_config["color"]}; font-weight: bold;">{avatar_config["name"]}</p>' if show_name else ''}
-        <p style="margin: 0; font-size: 0.8rem; color: #666;">{avatar_config["description"]}</p>
     </div>
     """
     
@@ -255,19 +297,24 @@ def avatar_response_with_expression(ai_response, fluency_score):
         <div class="response-container" style="
             background: linear-gradient(135deg, {avatar_config['color']}22, {avatar_config['color']}11);
             border-left: 4px solid {avatar_config['color']};
-            padding: 1rem;
-            border-radius: 10px;
+            padding: 1.5rem;
+            border-radius: 15px;
             margin: 0.5rem 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         ">
-            <strong style="color: {avatar_config['color']};">🤖 {avatar_config['name']}:</strong><br>
-            {ai_response.replace(chr(10), '<br>')}
+            <strong style="color: {avatar_config['color']}; font-size: 1.1rem;">
+                🤖 {avatar_config['name']}:
+            </strong><br><br>
+            <div style="font-size: 1rem; line-height: 1.6;">
+                {ai_response.replace(chr(10), '<br>')}
+            </div>
         </div>
         """
         
         st.markdown(response_html, unsafe_allow_html=True)
 
 def show_avatar_selection():
-    """Avatar selection interface"""
+    """Enhanced avatar selection interface"""
     st.subheader("🎭 Choose Your AI Tutor")
     
     cols = st.columns(len(AVATAR_PERSONALITIES))
@@ -275,25 +322,33 @@ def show_avatar_selection():
     for i, (avatar_id, config) in enumerate(AVATAR_PERSONALITIES.items()):
         with cols[i]:
             is_selected = st.session_state.selected_avatar == avatar_id
-            border_style = f"2px solid {config['color']}" if is_selected else "1px solid #ddd"
-            bg_style = f"linear-gradient(135deg, {config['color']}22, {config['color']}11)" if is_selected else "#f8f9fa"
+            border_style = f"3px solid {config['color']}" if is_selected else "2px solid #ddd"
+            bg_style = f"linear-gradient(135deg, {config['color']}25, {config['color']}10)" if is_selected else "#f8f9fa"
             
             st.markdown(f"""
-            <div style="text-align: center; padding: 1rem; border-radius: 10px; 
-                        background: {bg_style}; border: {border_style};">
-                <div style="font-size: 3rem; margin-bottom: 0.5rem;">{config['emoji_base']}</div>
-                <strong>{config['name']}</strong><br>
-                <small>{config['description']}</small>
+            <div style="
+                text-align: center; 
+                padding: 1.5rem; 
+                border-radius: 15px; 
+                background: {bg_style}; 
+                border: {border_style};
+                transition: all 0.3s ease;
+                cursor: pointer;
+            ">
+                <div style="font-size: 4rem; margin-bottom: 1rem;">{config['emoji_base']}</div>
+                <strong style="font-size: 1.1rem;">{config['name']}</strong><br>
+                <small style="color: #666;">{config['description']}</small>
             </div>
             """, unsafe_allow_html=True)
             
-            if st.button(f"Select {config['name']}", key=f"select_{avatar_id}"):
+            if st.button(f"Select {config['name']}", key=f"select_{avatar_id}", use_container_width=True):
                 st.session_state.selected_avatar = avatar_id
+                st.session_state.avatar_expression = "happy"
                 st.success(f"✨ {config['name']} is now your tutor!")
                 st.rerun()
 
 def avatar_welcome_message():
-    """Show welcome message with avatar"""
+    """Enhanced welcome message with avatar"""
     if st.session_state.user_info:
         user_name = st.session_state.user_info.get('full_name', 'Student')
         avatar_config = AVATAR_PERSONALITIES[st.session_state.selected_avatar]
@@ -306,11 +361,25 @@ def avatar_welcome_message():
         
         message = welcome_messages.get(st.session_state.selected_avatar, f"Hello {user_name}!")
         
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            display_avatar("happy", size="medium")
-        with col2:
-            st.info(f"💬 {message}")
+        # Enhanced welcome message display
+        st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, {avatar_config['color']}20, {avatar_config['color']}08);
+            border: 2px solid {avatar_config['color']}40;
+            border-radius: 20px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        ">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">
+                {avatar_config['expressions']['happy']}
+            </div>
+            <strong style="color: {avatar_config['color']}; font-size: 1.2rem;">
+                💬 {message}
+            </strong>
+        </div>
+        """, unsafe_allow_html=True)
 
 def display_conversation_with_avatar(conversation):
     """Display conversation with avatar expressions"""
@@ -397,16 +466,16 @@ def show_login_page():
     st.title("🗣️ Vakta AI – Practice Your Language Skills")
     st.markdown("**Your AI-powered language learning companion with avatar tutors**")
     
-    # Show sample avatars
+    # Show sample avatars with better display
     st.subheader("🎭 Meet Your AI Tutors")
     cols = st.columns(3)
     sample_avatars = list(AVATAR_PERSONALITIES.items())
     for i, (avatar_id, config) in enumerate(sample_avatars):
         with cols[i]:
             st.markdown(f"""
-            <div style="text-align: center; padding: 1rem; background: linear-gradient(135deg, {config['color']}22, {config['color']}11); border-radius: 10px; margin-bottom: 1rem;">
-                <div style="font-size: 2rem;">{config['emoji_base']}</div>
-                <strong>{config['name']}</strong><br>
+            <div style="text-align: center; padding: 1.5rem; background: linear-gradient(135deg, {config['color']}22, {config['color']}11); border-radius: 15px; margin-bottom: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                <div style="font-size: 3rem; margin-bottom: 0.5rem;">{config['emoji_base']}</div>
+                <strong style="color: {config['color']};">{config['name']}</strong><br>
                 <small>{config['description']}</small>
             </div>
             """, unsafe_allow_html=True)
@@ -498,16 +567,20 @@ def show_login_page():
                     st.error("⚠️ Please fill all fields")
 
 def show_chat_page():
-    """Display main chat interface with avatar"""
+    """Display main chat interface with enhanced avatar"""
     
     # Add custom CSS
     st.markdown(AVATAR_CSS, unsafe_allow_html=True)
     
-    # Header with avatar
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.title("🗣️ Vakta AI")
-        display_avatar(st.session_state.avatar_expression, size="large")
+    # Main Header
+    st.markdown("""
+    <div class="main-header">
+        <h1>🗣️ Vakta AI</h1>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # LARGE MAIN AVATAR DISPLAY
+    display_avatar(st.session_state.avatar_expression, size="large", show_name=True)
     
     # User info and controls
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -549,6 +622,7 @@ def show_chat_page():
             st.write("")
             if st.button("🎤 Speak", use_container_width=True):
                 st.session_state.avatar_expression = "thinking"
+                st.rerun()  # Update avatar immediately
                 voice_text = record_voice()
                 if voice_text:
                     user_input = voice_text
@@ -562,6 +636,7 @@ def show_chat_page():
     if st.button("📤 Send Message", use_container_width=True, disabled=not user_input):
         if user_input.strip():
             st.session_state.avatar_expression = "thinking"
+            st.rerun()  # Show thinking avatar immediately
             
             with st.spinner("🤖 Your tutor is thinking..."):
                 result = send_chat_message(user_input.strip())
@@ -589,6 +664,8 @@ def show_chat_page():
                         st.success(f"⭐ Great job! Your tutor is excited! Score: **{fluency_score}/100**")
                     else:
                         st.success(f"👍 Good effort! Your tutor is encouraging you! Score: **{fluency_score}/100**")
+                    
+                    st.rerun()  # Update avatar with new expression
                 else:
                     st.session_state.avatar_expression = "encouraging"
                     st.error(f"❌ {result['error']}")
@@ -632,9 +709,10 @@ def show_chat_page():
                     play_text_to_speech(conv['ai_response'])
     
     else:
+        st.markdown("---")
         col1, col2 = st.columns([1, 2])
         with col1:
-            display_avatar("happy", size="large")
+            display_avatar("happy", size="medium", show_name=False)
         with col2:
             st.info("👋 **Your AI tutor is ready!** Start your conversation now!")
             st.markdown("""
@@ -651,9 +729,9 @@ def show_chat_page():
         
         avatar_config = AVATAR_PERSONALITIES[st.session_state.selected_avatar]
         st.markdown(f"""
-        <div style="text-align: center; padding: 1rem; background: linear-gradient(135deg, {avatar_config['color']}22, {avatar_config['color']}11); border-radius: 10px; margin-bottom: 1rem;">
-            <div style="font-size: 2rem;">{avatar_config['emoji_base']}</div>
-            <strong>{avatar_config['name']}</strong><br>
+        <div style="text-align: center; padding: 1.5rem; background: linear-gradient(135deg, {avatar_config['color']}25, {avatar_config['color']}10); border-radius: 15px; margin-bottom: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+            <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">{avatar_config['emoji_base']}</div>
+            <strong style="color: {avatar_config['color']};">{avatar_config['name']}</strong><br>
             <small>{avatar_config['description']}</small>
         </div>
         """, unsafe_allow_html=True)

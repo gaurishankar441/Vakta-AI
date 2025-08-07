@@ -1,1 +1,6 @@
-[paste .gitignore content]
+vakta_env/
+node_modules/
+__pycache__/
+.DS_Store
+*.pyc
+.env
