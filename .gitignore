@@ -4,3 +4,6 @@ __pycache__/
 .DS_Store
 *.pyc
 .env
+.DS_Store
+.env
+vakta-frontend.zip
