@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: vakta-api
+Version: 0.1.0
+Summary: Vakta AI API Server
+Requires-Python: >=3.9
+Requires-Dist: fastapi==0.110.0
+Requires-Dist: uvicorn[standard]==0.29.0
+Requires-Dist: prometheus-client==0.20.0
+Requires-Dist: pytest==8.0.0
+Requires-Dist: SQLAlchemy>=2.0
+Requires-Dist: psycopg[binary]>=3.1
+Requires-Dist: passlib[bcrypt]>=1.7
+Requires-Dist: python-jose[cryptography]>=3.3
+Requires-Dist: redis>=5.0
+Requires-Dist: pydantic>=2.6
+Requires-Dist: pydantic-settings>=2.2

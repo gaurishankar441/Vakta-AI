@@ -1,0 +1,31 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ASR_MODEL: str = "gpt-4o-mini-transcribe"
+    DEMO_GREETING: bool = True
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
+
+    OPENAI_API_KEY: str | None = None
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    JWT_SECRET: str = "changeme"  # set via env in prod
+
+    # --- VAD / WS ---
+    VAD_AGGRESSIVENESS: int = 2
+    VAD_FRAME_MS: int = 20
+    VAD_MAX_SILENCE_MS: int = 400
+    WS_SAMPLE_RATE: int = 16000
+    WS_MAX_UTTER_MS: int = 15000
+
+    # --- Provider order & breaker ---
+    PREF_ASR: str = "openai,whisperx"
+    PREF_TTS: str = "openai,edge"
+    PREF_LLM: str = "openai"
+    CB_FAIL_WINDOW_SEC: int = 60
+    CB_TRIP_AFTER: int = 3
+    CB_COOLDOWN_SEC: int = 30
+
+    # --- Cost ---
+    COST_INPUT_PER_1K: float = 0.5
+    COST_OUTPUT_PER_1K: float = 1.5
+    DAILY_BUDGET_USD: float = 2.5
+
+settings = Settings()

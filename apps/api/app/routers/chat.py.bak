@@ -1,0 +1,79 @@
+from time import perf_counter
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from app.db import get_db
+from app.security import get_current_user
+from app.models import Message, User
+from app.core.metrics import chat_messages_total, chat_request_latency_seconds
+
+router = APIRouter()
+
+class ChatIn(BaseModel):
+    message: str
+
+@router.post("/message", summary="Send a chat message")
+def message(
+    body: ChatIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    start = perf_counter()
+    try:
+        # persist user message
+        u_msg = Message(user_id=current_user.id, role="user", content=body.message)
+        db.add(u_msg)
+
+        # simple echo assistant
+        a_msg = Message(user_id=current_user.id, role="assistant", content=f"echo: {body.message}")
+        db.add(a_msg)
+
+        db.commit()
+        # counters
+        chat_messages_total.labels(role="user").inc()
+        chat_messages_total.labels(role="assistant").inc()
+
+        return {"role": "assistant", "content": a_msg.content}
+    finally:
+        chat_request_latency_seconds.observe(perf_counter() - start)
+
+@router.get("/history", summary="Get last N messages")
+def history(
+    limit: Optional[int] = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    q = (
+        db.query(Message)
+        .filter(Message.user_id == current_user.id)
+        .order_by(Message.created_at.asc())
+    )
+    if limit:
+        q = q.limit(int(limit))
+    items = q.all()
+    return [
+        {"role": m.role, "content": m.content, "created_at": m.created_at.isoformat()}
+        for m in items
+    ]
+
+@router.get("/stats", summary="Message counts")
+def stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    rows = (
+        db.query(Message.role, func.count(Message.id))
+        .filter(Message.user_id == current_user.id)
+        .group_by(Message.role)
+        .all()
+    )
+    counts = {r[0]: int(r[1]) for r in rows}
+    return {
+        "total": sum(counts.values()),
+        "user": counts.get("user", 0),
+        "assistant": counts.get("assistant", 0),
+    }

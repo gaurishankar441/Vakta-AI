@@ -1,0 +1,45 @@
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import json, asyncio, os
+
+router = APIRouter()
+
+@router.websocket("/audio")
+async def ws_audio(ws: WebSocket, token: str | None = None):
+    await ws.accept()
+    try:
+        ready = False
+        buf = bytearray()
+        while True:
+            msg = await ws.receive()
+            if "text" in msg:
+                try:
+                    data = json.loads(msg["text"])
+                except Exception:
+                    await ws.send_json({"type":"error","message":"invalid json"})
+                    continue
+                if data.get("type") == "start":
+                    ready = True
+                    await ws.send_json({"type":"ready"})
+                elif data.get("type") == "stop":
+                    await ws.send_json({"type":"bye"})
+                    break
+                else:
+                    await ws.send_json({"type":"ack"})
+            elif "bytes" in msg:
+                if not ready:
+                    await ws.send_json({"type":"error","message":"send start first"})
+                    continue
+                # collect bytes and simulate: partial -> transcript -> (binary audio) -> turn_end
+                buf.extend(msg["bytes"])
+                if len(buf) >= 320*5:  # ~100ms * 5 frames
+                    await ws.send_json({"type":"partial","text":"(listening...)"})
+                if len(buf) >= 320*50: # ~1s dummy
+                    await ws.send_json({"type":"transcript","text":"Hello (demo transcript)"})
+                    # stream 3 tiny audio chunks (fake)
+                    for _ in range(3):
+                        await ws.send_bytes(b"\x00"*512)
+                        await asyncio.sleep(0.05)
+                    await ws.send_json({"type":"turn_end","citations":[]})
+                    buf.clear()
+    except WebSocketDisconnect:
+        return

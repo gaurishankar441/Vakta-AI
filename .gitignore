@@ -1,9 +1,46 @@
-vakta_env/
-node_modules/
+# Byte-compiled / cache
 __pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# macOS
 .DS_Store
-*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# Build / dist
+build/
+dist/
+*.egg-info/
+
+# Test/coverage/logs
+.coverage
+htmlcov/
+pytest_cache/
+*.log
+
+# Docker / local overrides
+infra/docker/docker-compose.override.yml
+
+# Env & secrets
 .env
-.DS_Store
-.env
-vakta-frontend.zip
+.env.*
+.envrc
+.auth_token
+.git-credentials
+
+# Data
+data/
+*.sqlite3
+
+# Node (if present)
+node_modules/

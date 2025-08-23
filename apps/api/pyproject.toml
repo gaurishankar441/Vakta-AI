@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vakta-api"
+version = "0.1.0"
+description = "Vakta AI API Server"
+requires-python = ">=3.9"
+dependencies = [
+  "webrtcvad",
+  "numpy",
+  "fastapi==0.110.0",
+  "uvicorn[standard]==0.29.0",
+  "prometheus-client==0.20.0",
+  "SQLAlchemy>=2.0",
+  "psycopg[binary]>=3.1",
+  "passlib[bcrypt]>=1.7",
+  "bcrypt==4.0.1",
+  "python-jose[cryptography]>=3.3",
+  "redis>=5.0",
+  "pydantic>=2.6",
+  "pydantic-settings>=2.2",
+  "email-validator>=2.2.0",
+  "openai>=1.50.0"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["app"]
+addopts = "-q"
