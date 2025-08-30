@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+# Stable WS client for your server:
+# start -> bytes -> (empty-binary) -> {"type":"finalizing"} -> (fallback {"type":"end"}) -> wait -> save TTS
+# Env:
+#   WS_URL (default ws://127.0.0.1:8000/ws/audio)
+#   WS_BEARER_TOKEN (optional Authorization: Bearer ...)
+#   WS_RECV_TIMEOUT (default 60)
+# Usage:
+#   python ws_file_tts_client_stable.py <wav 16k mono s16le>
+import asyncio, json, os, sys, time, wave
+import websockets  # pip install websockets
+
+URL=os.environ.get("WS_URL","ws://127.0.0.1:8000/ws/audio")
+TIMEOUT=float(os.environ.get("WS_RECV_TIMEOUT","60"))
+CHUNK=3200  # 100ms @16k mono s16le
+
+def read_pcm16_mono_16k(path:str)->bytes:
+    with wave.open(path,"rb") as wf:
+        assert wf.getframerate()==16000 and wf.getnchannels()==1 and wf.getsampwidth()==2, "need 16kHz mono pcm_s16le WAV"
+        return wf.readframes(wf.getnframes())
+
+async def main(wav_path:str):
+    pcm=read_pcm16_mono_16k(wav_path)
+    headers={}
+    tok=os.environ.get("WS_BEARER_TOKEN")
+    if tok: headers["Authorization"]=f"Bearer {tok}"
+
+    async with websockets.connect(URL, max_size=None, extra_headers=headers) as ws:
+        # 1) start
+        await ws.send(json.dumps({"type":"start","sample_rate":16000,"channels":1,"format":"pcm_s16le"}))
+
+        # 2) stream audio
+        for i in range(0,len(pcm),CHUNK):
+            await ws.send(pcm[i:i+CHUNK])
+
+        # 3) EOS signals (what your server understands)
+        #    a) empty-binary sentinel (best-effort)
+        try: await ws.send(b"")
+        except Exception: pass
+        #    b) primary end-control your server expects: "finalizing"
+        await ws.send(json.dumps({"type":"finalizing"}))
+        #    c) tiny pause + conservative fallback "end"
+        await asyncio.sleep(0.15)
+        await ws.send(json.dumps({"type":"end"}))
+
+        # 4) listen & save TTS
+        deadline=time.time()+TIMEOUT
+        out=None; out_path=None
+        while time.time()<deadline:
+            try:
+                msg=await asyncio.wait_for(ws.recv(), timeout=max(0.1,deadline-time.time()))
+            except asyncio.TimeoutError:
+                print("[i] recv timeout"); break
+
+            if isinstance(msg,(bytes,bytearray)):
+                if out: out.write(msg)
+                else: print(f"[<-bin] {len(msg)} bytes (no file open yet)")
+                continue
+
+            try:
+                evt=json.loads(msg)
+            except Exception:
+                # mute noisy text warnings
+                # print("[<-text]", str(msg)[:120].replace("\n","\\n"))
+                continue
+
+            t=evt.get("type")
+            if t=="warn":  # keep quiet
+                continue
+            print("[<-]", json.dumps(evt))
+            if t=="tts":
+                fmt=evt.get("format","mp3")
+                out_path=f"/tmp/tts_out.{fmt}"
+                out=open(out_path,"wb")
+            if t in ("tts_end","error","closed"):
+                break
+
+        if out:
+            out.close()
+            print("[save]", out_path)
+        else:
+            print("[save] no TTS received")
+
+if __name__=="__main__":
+    if len(sys.argv)<2:
+        print("usage: python ws_file_tts_client_stable.py <wav 16k mono s16le>")
+        sys.exit(2)
+    asyncio.run(main(sys.argv[1]))

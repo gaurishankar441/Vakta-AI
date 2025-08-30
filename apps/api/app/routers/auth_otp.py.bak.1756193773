@@ -1,0 +1,79 @@
+from __future__ import annotations
+import os, time, secrets, string
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import jwt
+from fastapi import APIRouter, Depends, HTTPException, Header
+from pydantic import BaseModel, EmailStr
+import redis
+
+router = APIRouter(prefix="/api/auth", tags=["auth-otp"])
+
+# --- config from env ---
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
+JWT_EXP_MIN = int(os.getenv("JWT_EXP_MIN", "60"))
+OTP_TTL_SEC = int(os.getenv("OTP_TTL_SEC", "300"))
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+
+r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+
+class OTPRequest(BaseModel):
+    email: EmailStr
+
+class OTPVerify(BaseModel):
+    email: EmailStr
+    code: str
+
+def _otp_key(email: str) -> str:
+    return f"otp:{email.lower()}"
+
+def _issue_jwt(sub: str) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": sub,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=JWT_EXP_MIN)).timestamp()),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+@router.post("/otp/request")
+def otp_request(body: OTPRequest):
+    code = "".join(secrets.choice(string.digits) for _ in range(6))
+    # store (overwrite any old) with TTL
+    r.setex(_otp_key(body.email), OTP_TTL_SEC, code)
+    # dev-mode: return code in response (prod: send via email/sms)
+    return {"ok": True, "ttl_sec": OTP_TTL_SEC, "dev_code": code}
+
+@router.post("/otp/verify")
+def otp_verify(body: OTPVerify):
+    key = _otp_key(body.email)
+    val = r.get(key)
+    if not val or val != body.code:
+        raise HTTPException(status_code=400, detail="invalid_or_expired_code")
+    r.delete(key)
+    token = _issue_jwt(body.email)
+    return {"access_token": token, "token_type": "bearer", "expires_in": JWT_EXP_MIN * 60}
+
+@router.get("/me")
+def me(authorization: Optional[str] = Header(default=None)):
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="missing_token")
+    token = authorization.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="invalid_token")
+    return {"sub": payload.get("sub"), "exp": payload.get("exp")}
+
+@router.post("/refresh")
+def refresh(authorization: Optional[str] = Header(default=None)):
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="missing_token")
+    old = authorization.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(old, JWT_SECRET, algorithms=["HS256"], options={"verify_exp": False})
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="invalid_token")
+    sub = payload.get("sub")
+    return {"access_token": _issue_jwt(sub), "token_type": "bearer", "expires_in": JWT_EXP_MIN * 60}

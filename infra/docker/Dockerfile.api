@@ -19,3 +19,4 @@ COPY apps/api/app /app/app
 
 # Default CMD (uvicorn)
 CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]
+RUN pip install --no-cache-dir opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc opentelemetry-instrumentation-fastapi opentelemetry-instrumentation-logging opentelemetry-instrumentation-starlette

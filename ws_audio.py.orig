@@ -1,0 +1,280 @@
+import os, io, json, wave, asyncio, logging
+from datetime import datetime
+from typing import Optional
+from fastapi import APIRouter, Depends, WebSocket, HTTPException, status
+from starlette.websockets import WebSocketDisconnect
+from app.deps_ws import get_current_user_ws
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+__all__ = ["router"]
+
+# --- Runtime knobs (env) ---
+WS_AUTH_REQUIRED = os.getenv("WS_AUTH_REQUIRED", "0") in ("1","true","True")
+WS_MAX_PCM_BYTES = int(os.getenv("WS_MAX_PCM_BYTES", "2000000"))
+WS_MAX_DUR_SEC   = int(os.getenv("WS_MAX_DUR_SEC", "60"))
+
+# --- Token helpers (HEADER first, then ?token= for dev) ---
+def _extract_bearer_token(websocket: WebSocket) -> Optional[str]:
+    # IMPORTANT: use Headers.get (case-insensitive); don't cast to dict()
+    auth = websocket.headers.get("authorization") or websocket.headers.get("Authorization")
+    if auth:
+        parts = auth.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            return parts[1]
+    # dev fallback: ws://.../audio?token=JWT
+    qtok = websocket.query_params.get("token")
+    return qtok or None
+
+def _decode_with_project_helper(token: str) -> Optional[dict]:
+    try:
+        from app.core.security import decode_access_token
+        return decode_access_token(token)
+    except Exception:
+        return None
+
+def _decode_with_pyjwt(token: str) -> Optional[dict]:
+    try:
+        import jwt
+    except Exception:
+        logger.warning("PyJWT not available; cannot verify token.")
+        return None
+    secret = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET")
+    algo = os.getenv("ALGORITHM") or "HS256"
+    if not secret:
+        logger.warning("SECRET_KEY/JWT_SECRET not set; cannot verify token.")
+        return None
+    try:
+        return jwt.decode(token, secret, algorithms=[algo])
+    except Exception as e:
+        logger.info("JWT invalid/expired: %s", e)
+        return None
+
+async def _optional_authenticate(websocket: WebSocket) -> Optional[dict]:
+    tok = _extract_bearer_token(websocket)
+    if not tok and WS_AUTH_REQUIRED:
+        # minimal accept so client sees JSON error payload
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "code": 403, "message": "Authorization required"})
+        await websocket.close(code=1008)
+        raise WebSocketDisconnect(code=1008)
+    if not tok:
+        return None
+    payload = _decode_with_project_helper(tok) or _decode_with_pyjwt(tok)
+    if not payload:
+        try:
+            await websocket.accept()
+            await websocket.send_json({"type": "error", "code": 403, "message": "Invalid or expired token"})
+        except Exception:
+            pass
+        await websocket.close(code=1008)
+        raise WebSocketDisconnect(code=1008)
+    return payload
+
+# --- ASR via OpenAI (optional) ---
+async def _openai_transcribe(wav_bytes: bytes):
+    if not os.getenv("OPENAI_API_KEY"):
+        return f"[ASR off: OPENAI_API_KEY missing] bytes={len(wav_bytes)}", "none"
+    model = os.getenv("ASR_MODEL", "gpt-4o-mini-transcribe")
+    from openai import OpenAI
+    import tempfile
+
+    def _do():
+        client = OpenAI()
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
+            tmp.write(wav_bytes); tmp.flush()
+            with open(tmp.name, "rb") as fh:
+                resp = client.audio.transcriptions.create(model=model, file=fh)
+        return resp.text
+
+    try:
+        text = await asyncio.to_thread(_do)
+        return text or "", model
+    except Exception as e:
+        logger.exception("ASR failed")
+        return f"[ASR error: {e.__class__.__name__}]", "error"
+
+# --- LLM reply via OpenAI (optional) ---
+async def _openai_reply(prompt: str):
+    if not os.getenv("OPENAI_API_KEY"):
+        return "[LLM off: OPENAI_API_KEY missing]", "none"
+    model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    from openai import OpenAI
+
+    def _do():
+        client = OpenAI()
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are Vakta AI, a friendly speaking coach. Reply in 1-2 concise sentences."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.6,
+            max_tokens=120,
+        )
+        return resp.choices[0].message.content.strip()
+
+    try:
+        text = await asyncio.to_thread(_do)
+        return text or "", model
+    except Exception as e:
+        logger.exception("LLM failed")
+        return f"[LLM error: {e.__class__.__name__}]", "error"
+
+# --- TTS via gTTS ---
+async def _gtts_tts_mp3(text: str, lang: str = "en") -> bytes:
+    from gtts import gTTS
+    def _do():
+        import io as _io
+        buf = _io.BytesIO()
+        gTTS(text=text, lang=lang).write_to_fp(buf)
+        return buf.getvalue()
+    try:
+        return await asyncio.to_thread(_do)
+    except Exception:
+        logger.exception("gTTS failed")
+        return b""
+
+def _pcm_to_wav_bytes(pcm: bytes, sr: int, ch: int, sampwidth: int = 2) -> bytes:
+    b = io.BytesIO()
+    with wave.open(b, "wb") as wf:
+        wf.setnchannels(ch); wf.setsampwidth(sampwidth); wf.setframerate(sr)
+        wf.writeframes(pcm)
+    return b.getvalue()
+
+# --- simple WS auth: header Bearer or ?token ---
+def _ws_auth(websocket: WebSocket):
+    auth = websocket.headers.get("authorization")
+    token = None
+    if auth and auth.lower().startswith("bearer "):
+        token = auth.split(" ",1)[1].strip()
+    if not token:
+        token = websocket.query_params.get("token")
+    if not token:
+        raise HTTPException(status_code=403, detail="missing token")
+    secret = os.getenv("API_SECRET") or os.getenv("JWT_SECRET") or "dev-secret-change-me"
+    try:
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+    except Exception as e:
+        raise HTTPException(status_code=403, detail=f"bad token: {e}")
+    return payload
+
+@router.websocket("/audio")
+async def ws_audio(websocket: WebSocket, user=Depends(_ws_auth)):
+    try:
+        claims = await _optional_authenticate(websocket)
+        if claims: logger.info("WS auth ok: sub=%s", claims.get("sub"))
+        else: logger.info("WS anon dev connection")
+    except WebSocketDisconnect:
+        return
+
+    await websocket.accept()
+    await websocket.send_json({"type": "ready", "ts": datetime.utcnow().isoformat()})
+
+    sample_rate, channels, fmt = 16000, 1, "pcm_s16le"
+    buf = bytearray()
+    started = False
+    tts_lang = os.getenv("TTS_LANG", "en")
+
+    try:
+        while True:
+            msg = await websocket.receive()
+
+            # --- TEXT frames ---
+            if "text" in msg and msg["text"] is not None:
+                txt = msg["text"]
+                if txt in ("ping", "__ping__"):
+                    await websocket.send_text("__pong__"); continue
+                if txt in ("bye", "close"):
+                    await websocket.close(code=1000); break
+                if txt == "end":
+                    dur_sec = round(len(buf) / (2 * max(1, sample_rate)), 3)
+                    if len(buf) > WS_MAX_PCM_BYTES or dur_sec > WS_MAX_DUR_SEC:
+                        await websocket.send_json({
+                            "type": "error", "code": "too_long",
+                            "bytes": len(buf), "dur_sec": dur_sec,
+                            "limits": {"max_bytes": WS_MAX_PCM_BYTES, "max_dur_sec": WS_MAX_DUR_SEC}
+                        })
+                        buf.clear(); started = False
+                        continue
+
+                    await websocket.send_json({"type": "finalizing", "dur_sec": dur_sec})
+                    wav_bytes = _pcm_to_wav_bytes(bytes(buf), sample_rate, channels)
+
+                    transcript, asr_model = await _openai_transcribe(wav_bytes)
+                    await websocket.send_json({
+                        "type": "transcript", "text": transcript,
+                        "dur_sec": dur_sec, "bytes": len(buf), "model": asr_model
+                    })
+
+                    assistant, llm_model = await _openai_reply(transcript)
+                    await websocket.send_json({"type": "assistant", "text": assistant, "model": llm_model})
+
+                    mp3 = await _gtts_tts_mp3(assistant, lang=tts_lang)
+                    await websocket.send_json({"type": "tts", "format": "mp3", "bytes": len(mp3)})
+                    CHUNK = 32768
+                    for i in range(0, len(mp3), CHUNK):
+                        await websocket.send_bytes(mp3[i:i+CHUNK])
+                    await websocket.send_json({"type": "tts_end"})
+
+                    buf.clear(); started = False
+                    continue
+
+                # JSON control frames
+                try:
+                    data = json.loads(txt)
+                    if data.get("type") == "start":
+                        sample_rate = int(data.get("sample_rate", 16000))
+                        channels = int(data.get("channels", 1))
+                        fmt = data.get("format", "pcm_s16le")
+                        tts_lang = data.get("tts_lang", tts_lang)
+                        await websocket.send_json({"type": "started", "sr": sample_rate, "ch": channels, "fmt": fmt})
+                        started = True
+                    else:
+                        await websocket.send_json({"type": "warn", "message": "Unknown text frame"})
+                except json.JSONDecodeError:
+                    await websocket.send_json({"type": "warn", "message": "Non-JSON text ignored"})
+                continue
+
+            # --- BINARY (audio) frames ---
+            if "bytes" in msg and msg["bytes"] is not None:
+                b = msg["bytes"]
+                if not started:
+                    started = True
+                    await websocket.send_json({"type": "started", "sr": sample_rate, "ch": channels, "fmt": fmt})
+                buf.extend(b)
+                if len(buf) > WS_MAX_PCM_BYTES:
+                    await websocket.send_json({"type": "error", "code": "too_big", "bytes": len(buf), "limit": WS_MAX_PCM_BYTES})
+                    buf.clear(); started = False
+                    continue
+                await websocket.send_json({"type": "bytes", "len": len(b)})
+                continue
+    except WebSocketDisconnect:
+        logger.info("🔌 Client disconnected gracefully")
+    except Exception as e:
+        logger.exception("WS error: %s", e)
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
+
+# --- compat alias for legacy path (/ws/audio -> /audio) ---
+try:
+    _alias_added = False
+    for _r in getattr(router, "routes", []):
+        if getattr(_r, "path", None) == "/audio" and hasattr(_r, "endpoint"):
+            try:
+                router.add_api_websocket_route("/ws/audio", _r.endpoint)
+                print("[ws] alias /ws/audio -> /audio")
+                _alias_added = True
+            except Exception as _e:
+                print("[ws] alias add failed:", _e)
+            break
+    if not _alias_added:
+        print("[ws] alias not added: /audio route not found")
+except Exception as _e:
+    print("[ws] alias setup error:", _e)

@@ -1,0 +1,18 @@
+groups:
+  - name: vakta-compat
+    interval: 30s
+    rules:
+      # Total HTTP requests (by method/status)
+      - record: http_requests_total
+        expr: sum by (method, status) (starlette_requests_total{job="vakta-api"})
+
+      # 5xx error fraction (5m)
+      - record: vakta:http_5xx_fraction_5m
+        expr: |
+          sum(rate(starlette_requests_total{job="vakta-api", status=~"5.."}[5m]))
+          /
+          sum(rate(starlette_requests_total{job="vakta-api"}[5m]))
+
+      # p95 latency (seconds) over 5m using http_request_duration_seconds buckets
+      - record: vakta:http_request_p95_seconds_5m
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="vakta-api"}[5m])))

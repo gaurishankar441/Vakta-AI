@@ -1,0 +1,70 @@
+{
+  "uid": "vakta-api-overview",
+  "title": "Vakta API Overview",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "schemaVersion": 38,
+  "version": 4,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Request rate (req/s)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(starlette_requests_total{job=\"vakta-api\"}[1m]))"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx error rate",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(sum(rate(starlette_requests_total{job=\"vakta-api\",status_code=~\"5..\"}[5m])) / sum(rate(starlette_requests_total{job=\"vakta-api\"}[5m])), 0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP duration p95 (s)",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"vakta-api\"}[5m])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    }
+  ]
+}

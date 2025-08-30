@@ -1,0 +1,39 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    folder: Vakta Alerts
+    name: vakta-api
+    interval: 1m
+    rules:
+      - uid: vakta-p95
+        title: Vakta p95 latency high
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              expr: vakta:http_request_p95_seconds_5m
+              instant: false
+        for: 3m
+        noDataState: NoData
+        execErrState: Error
+        annotations: {}
+        labels: { service: vakta-api }
+      - uid: vakta-5xx
+        title: Vakta 5xx fraction high
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              expr: vakta:http_5xx_fraction_5m
+              instant: false
+        for: 3m
+        noDataState: NoData
+        execErrState: Error
+        annotations: {}
+        labels: { service: vakta-api }

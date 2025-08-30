@@ -1,0 +1,45 @@
+
+services:
+  grafana:
+    image: grafana/grafana:10.3.5
+    ports: ["3000:3000"]
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-lifecycle"
+    ports: ["9090:9090"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules:/etc/prometheus/rules:ro
+
+  tempo:
+    image: grafana/tempo:2.5.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    ports: ["3200:3200", "4317:4317", "4318:4318"]
+    volumes:
+      - ./monitoring/tempo.yaml:/etc/tempo.yaml:ro
+
+  redis_exporter:
+    image: oliver006/redis_exporter:v1.67.0
+    environment:
+      REDIS_ADDR: redis:6379
+    depends_on:
+      - redis
+    ports: ["9121:9121"]
+
+  postgres_exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: postgresql://vakta:vakta@postgres:5432/vakta?sslmode=disable
+    depends_on:
+      - postgres
+    ports: ["9187:9187"]

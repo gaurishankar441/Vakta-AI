@@ -1,0 +1,51 @@
+{
+  "id": null,
+  "uid": "vakta-obsv",
+  "title": "Vakta API Observability",
+  "schemaVersion": 38,
+  "version": 2,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Requests per second",
+      "gridPos": {"h":8,"w":12,"x":0,"y":0},
+      "datasource": {"type":"prometheus","uid":"prometheus"},
+      "targets": [{"expr":"sum(rate(starlette_requests_total{job=\"vakta-api\"}[1m]))","refId":"A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 latency (s)",
+      "gridPos": {"h":8,"w":12,"x":12,"y":0},
+      "datasource": {"type":"prometheus","uid":"prometheus"},
+      "targets": [
+        {"expr":"histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"vakta-api\"}[5m])))","refId":"A"}
+      ],
+      "links": [
+        {
+          "title": "Open in Tempo Explore",
+          "url": "/explore?left=%7B%22datasource%22:%22tempo%22,%22queries%22:[%7B%22query%22:%22%7B%20service.name%20=%20%5C%22vakta-api%5C%22%20%7D%22%7D],%22range%22:%7B%22from%22:%22%24__from%22,%22to%22:%22%24__to%22%7D%7D"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx error fraction",
+      "gridPos": {"h":8,"w":12,"x":0,"y":8},
+      "datasource": {"type":"prometheus","uid":"prometheus"},
+      "targets": [
+        {"expr":"sum(rate(starlette_requests_total{job=\"vakta-api\",status=~\"5..\"}[5m])) / sum(rate(starlette_requests_total{job=\"vakta-api\"}[5m]))","refId":"A"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Current 5xx fraction",
+      "gridPos": {"h":8,"w":12,"x":12,"y":8},
+      "datasource": {"type":"prometheus","uid":"prometheus"},
+      "targets": [
+        {"expr":"sum(rate(starlette_requests_total{job=\"vakta-api\",status=~\"5..\"}[5m])) / sum(rate(starlette_requests_total{job=\"vakta-api\"}[5m]))","refId":"A","instant": true}
+      ],
+      "options": {"reduceOptions":{"calcs":["lastNotNull"]}}
+    }
+  ],
+  "templating": { "list": [] }
+}

@@ -1,0 +1,26 @@
+groups:
+- name: vakta-api
+  rules:
+  - alert: VAKTA_HighErrorRate
+    expr: (sum(rate(starlette_requests_total{job="vakta-api",status=~"5.."}[5m])) / sum(rate(starlette_requests_total{job="vakta-api"}[5m]))) > 0.02
+    for: 10m
+    labels: { severity: page }
+    annotations:
+      summary: "High 5xx error rate (>2% for 10m)"
+      description: "Investigate API 5xx. Current: {{ $value | printf \"%.2f\" }}"
+
+  - alert: VAKTA_HighP95Latency
+    expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="vakta-api"}[5m]))) > 1.8
+    for: 10m
+    labels: { severity: ticket }
+    annotations:
+      summary: "p95 latency > 1.8s (10m)"
+      description: "User-facing slowness likely."
+
+  - alert: VAKTA_NoTraffic
+    expr: sum(rate(starlette_requests_total{job="vakta-api"}[5m])) < 0.05
+    for: 15m
+    labels: { severity: warn }
+    annotations:
+      summary: "Traffic dropped very low"
+      description: "May indicate outage or routing issue."
