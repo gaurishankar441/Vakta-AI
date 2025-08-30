@@ -1,83 +1,109 @@
-COMPOSE = docker compose -f infra/docker/docker-compose.yml
+TOKEN_FILE := .auth_token
+COMPOSE := docker compose -f infra/docker/docker-compose.yml
 
-.PHONY: help dev dev-stop logs clean docker-build health-check test test-api wait-api smoke-api pytest-api shell-api shell-db
+.PHONY: auth-login auth-me auth-refresh auth-logout show-token
 
-help: ## Show targets
-	@echo 'Usage: make [target]'
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+auth-login:
+	@curl -s -X POST http://localhost:8000/api/auth/otp/request \
+	  -H 'content-type: application/json' \
+	  -d '{"email":"tester@vakta.ai"}' | jq .
+	@CODE=`$(COMPOSE) exec -T redis redis-cli GET otp:tester@vakta.ai | tr -d '\r\n"'`; \
+	  TOKEN=`curl -s -X POST http://localhost:8000/api/auth/otp/verify \
+	    -H 'content-type: application/json' \
+	    -d "$$(printf '{"'"email"'":"'"tester@vakta.ai"'","'"code"'":"%s"}' "$$CODE")" | jq -r .access_token`; \
+	  echo $$TOKEN > $(TOKEN_FILE); \
+	  printf "Saved token to $(TOKEN_FILE)\nTOKEN starts: %s...\n" "`echo $$TOKEN | cut -c1-24`"
 
-dev: ## Start dev stack (API + Redis + Postgres)
-	$(COMPOSE) up --build -d
-	@echo "  API      : http://localhost:8000"
-	@echo "  Docs     : http://localhost:8000/docs"
-	@echo "  Metrics  : http://localhost:8000/api/metrics"
-	@echo "  Postgres : localhost:5432"
-	@echo "  Redis    : localhost:6379"
+# auto-load token from file if present
+TOKEN ?= $(shell cat $(TOKEN_FILE) 2>/dev/null)
 
-dev-stop: ## Stop stack (preserve volumes)
-	$(COMPOSE) down
+auth-me:
+	@test -n "$(TOKEN)" || (echo "Set TOKEN=... or run 'make auth-login'"; exit 1)
+	@curl -s http://localhost:8000/api/auth/me -H "Authorization: Bearer $(TOKEN)" | jq .
 
-logs: ## Tail all container logs
-	$(COMPOSE) logs -f
+auth-refresh:
+	@test -n "$(TOKEN)" || (echo "Set TOKEN=... or run 'make auth-login'"; exit 1)
+	@NEW=$$(curl -s -X POST http://localhost:8000/api/auth/refresh -H "Authorization: Bearer $(TOKEN)" | jq -r .access_token); \
+	  echo $$NEW > $(TOKEN_FILE); \
+	  printf "Refreshed. Saved to $(TOKEN_FILE)\nNEW starts: %s...\n" "`echo $$NEW | cut -c1-24`"
 
-clean: ## Stop & wipe containers + volumes (DANGER)
-	$(COMPOSE) down -v
-	docker system prune -f
+auth-logout:
+	@test -n "$(TOKEN)" || (echo "Set TOKEN=... or run 'make auth-login'"; exit 1)
+	@curl -s -X POST http://localhost:8000/api/auth/logout -H "Authorization: Bearer $(TOKEN)" | jq .
+	@rm -f $(TOKEN_FILE) && echo "Removed $(TOKEN_FILE)"
 
-docker-build: ## Rebuild images
-	$(COMPOSE) build
+.PHONY: chat-ping explore-tempo
 
-health-check: ## Quick API health & metrics (jq fallback)
-	@echo "Health:" ; \
-	curl -s http://localhost:8000/api/health | jq . 2>/dev/null || curl -s http://localhost:8000/api/health ; echo ; \
-	echo "Metrics:" ; \
-	curl -s http://localhost:8000/api/metrics | head -n 50
+# Use saved token from .auth_token (created by auth-login / auth-refresh)
+TOKEN ?= $(shell cat .auth_token 2>/dev/null)
 
-test: test-api ## Run all tests (currently smoke tests)
+chat-ping:
+	@test -n "$(TOKEN)" || (echo "Set TOKEN=... or run 'make auth-login'"; exit 1)
+	@curl -s -X POST http://localhost:8000/api/v1/chat/message \
+	  -H "Authorization: Bearer $(TOKEN)" \
+	  -H 'content-type: application/json' \
+	  -d '{"message":"Hello from client"}' | jq .
 
-test-api: wait-api smoke-api ## API smoke tests via curl (no pytest needed)
+explore-tempo:
+	@open 'http://localhost:3000/explore?left={"datasource":"tempo","queries":[{"query":"{ service.name = \"vakta-api\" }"}],"range":{"from":"now-30m","to":"now"}}'
+.PHONY: ws-file ws-mic
 
-wait-api: ## Wait until API is healthy (max 60s)
-	@echo "Waiting for API on :8000 ..." ; \
-	for i in $$(seq 1 60); do \
-	  out=$$(curl -sS --max-time 2 http://localhost:8000/api/health || true); \
-	  echo "$$out" | grep -q '"status":"ok"' && { echo "API is healthy"; exit 0; }; \
-	  sleep 1; \
-	done; \
-	echo "API did not become healthy in time"; exit 1
+ws-file:
+	@WS_URL="ws://localhost:8000/ws/audio?token=$$(tr -d '\r\n' < .auth_token)" \
 
-smoke-api: ## Signup/Login/Chat/History/Stats happy-path check
-	@set -euo pipefail ; set -o pipefail ; \
-	echo "== Health" ; \
-	curl -fsS http://localhost:8000/api/health >/dev/null && echo "OK" ; \
-	EMAIL="make+$$(( $$(date +%s) ))@example.com" ; PASS="pass" ; \
-	echo "== Signup $$EMAIL" ; \
-	curl -fsS -w '\nHTTP:%{http_code}\n' -X POST http://localhost:8000/api/v1/auth/signup \
-	  -H 'Content-Type: application/json' \
-	  -d "$$(jq -n --arg e $$EMAIL --arg p $$PASS '{email:$$e,password:$$p}')" | tee /tmp/signup.out ; \
-	STATUS=$$(tail -n1 /tmp/signup.out | sed 's/HTTP://'); \
-	if [ "$$STATUS" != "200" ] && [ "$$STATUS" != "409" ]; then echo "Signup failed HTTP $$STATUS"; exit 1; fi ; \
-	echo "== Login" ; \
-	TOKEN=$$(curl -fsS -X POST http://localhost:8000/api/v1/auth/login \
-	  -H 'Content-Type: application/json' \
-	  -d "$$(jq -n --arg e $$EMAIL --arg p $$PASS '{email:$$e,password:$$p}')" | jq -r '.access_token') ; \
-	test -n "$$TOKEN" ; echo "Token prefix: $${TOKEN:0:20}..." ; \
-	echo "== Chat" ; \
-	curl -fsS -X POST http://localhost:8000/api/v1/chat/message \
-	  -H "Authorization: Bearer $$TOKEN" -H 'Content-Type: application/json' \
-	  -d '{"message":"hello from make"}' >/dev/null ; \
-	echo "== History" ; \
-	curl -fsS "http://localhost:8000/api/v1/chat/history?limit=2" \
-	  -H "Authorization: Bearer $$TOKEN" | jq '. | length' 2>/dev/null | grep -qE '^[12]$$' || (echo "history len unexpected"; exit 1) ; \
-	echo "== Metrics (snippet)" ; \
-	curl -fsS http://localhost:8000/api/metrics | grep -E 'chat_messages_total|chat_request_latency_seconds_count' | head -n 5 || true ; \
-	echo "Smoke tests: OK"
+ws-mic:
+	@[ -n "$$SD_INPUT_DEVICE" ] || (echo "export SD_INPUT_DEVICE=<index>"; exit 1)
+	@WS_URL="ws://localhost:8000/ws/audio?token=$$(tr -d '\r\n' < .auth_token)" \
+	python3 ws_mic_to_server.py 3
 
-pytest-api: ## OPTIONAL: run pytest inside API container if tests exist
-	$(COMPOSE) exec -T api sh -lc 'if [ -d apps/api/tests ]; then pytest -q apps/api/tests -q --disable-warnings; else echo "No apps/api/tests found, skipping"; fi'
+# --- WS smoke defaults (can be overridden on CLI) ---
+WS_URL ?= ws://127.0.0.1:8000/ws/audio
+WS_WAV ?= test_16k.wav
+WS_RECV_TIMEOUT ?= 90
+WS_OPEN ?= 0
+# WS_BEARER_TOKEN can be set from shell when auth is on
 
-shell-api: ## Shell into API container
-	$(COMPOSE) exec api sh
+.PHONY: ws-smoke
+ws-smoke:
+	@echo "WS_URL=$(WS_URL)"
+	@WS_URL="$(WS_URL)" WS_WAV="$(WS_WAV)" WS_RECV_TIMEOUT="$(WS_RECV_TIMEOUT)" WS_OPEN="$(WS_OPEN)" WS_BEARER_TOKEN="$(WS_BEARER_TOKEN)" python3 scripts/ws_smoke.py
 
-shell-db: ## psql shell
-	$(COMPOSE) exec postgres psql -U vakta -d vakta
+# ===== WS AUTH/OTP helpers =====
+API_HOST ?= 127.0.0.1:8000
+WS_URL   ?= ws://127.0.0.1:8000/ws/audio
+WS_WAV   ?= test_16k.wav
+WS_RECV_TIMEOUT ?= 90
+WS_OPEN ?= 0
+
+.PHONY: ws-auth-off ws-auth-on ws-otp-request ws-otp-verify ws-smoke-auth
+
+ws-auth-off:
+	@printf "services:\n  api:\n    environment:\n      WS_AUTH_REQUIRED: \"0\"\n      OTEL_SDK_DISABLED: \"true\"\n      OTEL_TRACES_EXPORTER: \"none\"\n      OTEL_EXPORTER_OTLP_ENDPOINT: \"\"\n" > infra/docker/docker-compose.override.yml
+	@docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.override.yml up -d --build --force-recreate --no-deps api
+	@echo "WS auth: OFF"
+
+ws-auth-on:
+	@printf "services:\n  api:\n    environment:\n      WS_AUTH_REQUIRED: \"1\"\n      OTEL_SDK_DISABLED: \"true\"\n      OTEL_TRACES_EXPORTER: \"none\"\n      OTEL_EXPORTER_OTLP_ENDPOINT: \"\"\n" > infra/docker/docker-compose.override.yml
+	@docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.override.yml up -d --build --force-recreate --no-deps api
+	@echo "WS auth: ON"
+
+# usage: EMAIL=you@vakta.ai make ws-otp-request
+ws-smoke-auth:
+	@test -f .auth_token || (echo ".auth_token not found. Run ws-otp-request + ws-otp-verify."; exit 3)
+	@WS_URL="$(WS_URL)" WS_WAV="$(WS_WAV)" WS_RECV_TIMEOUT="$(WS_RECV_TIMEOUT)" WS_OPEN="$(WS_OPEN)" \
+	  WS_BEARER_TOKEN="$$(tr -d '\r\n' < .auth_token)" \
+	  python3 scripts/ws_smoke.py
+EMAIL ?= tester@vakta.ai
+
+ws-otp-request:
+	@test -n "$(EMAIL)" || (echo "Set EMAIL=..."; exit 2)
+	@curl -s -X POST http://$(API_HOST)/api/auth/otp/request \
+	  -H 'content-type: application/json' \
+	  -d '{"email":"$(EMAIL)"}' >/dev/null && echo "OTP sent to $(EMAIL)"
+
+# --- end append ---
+
+
+.PHONY: smoke-ws
+smoke-ws:
+	EMAIL=$(EMAIL) ./ws_smoke.sh
