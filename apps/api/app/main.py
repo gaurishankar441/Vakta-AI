@@ -1,9 +1,16 @@
 from app.middlewares.ws_token_header import TokenQueryToAuthHeader
 from fastapi import FastAPI
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
+import os
 from app.routers import health, metrics, auth, chat, ws_audio, echo, auth_otp
 
 # Build the real FastAPI app
 fastapi_app = FastAPI(title="vakta-api", version="0.0.1")
+import os
+if os.getenv("WS_ECHO_TEST") == "1":
+    from app.routers import ws_echo_test
+    app.include_router(ws_echo_test.router)
 
 # Routers
 fastapi_app.include_router(health.router, prefix="/api")
@@ -32,3 +39,12 @@ except Exception as e:
 # Wrap WITH the token-header middleware LAST so .include_router was called on the FastAPI app
 app = TokenQueryToAuthHeader(fastapi_app)
 print("[mw] TokenQueryToAuthHeader ACTIVE")
+
+# --- debug echo WS route (temporary) ---
+try:
+    from app.routers import ws_echo_test as _ws_echo_test
+    app.include_router(_ws_echo_test.router)
+except Exception as _e:
+    import logging as _logging
+    _logging.getLogger(__name__).exception("Failed to mount ws_echo_test: %s", _e)
+# --- end debug ---
