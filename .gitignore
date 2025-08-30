@@ -1,46 +1,28 @@
-# Byte-compiled / cache
 __pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.so
-
-# Virtual envs
-.venv/
-venv/
-env/
-
-# macOS
-.DS_Store
-
-# IDE
-.vscode/
-.idea/
-
-# Build / dist
-build/
-dist/
-*.egg-info/
-
-# Test/coverage/logs
+.auth_token
 .coverage
-htmlcov/
-pytest_cache/
-*.log
-
-# Docker / local overrides
-infra/docker/docker-compose.override.yml
-
-# Env & secrets
+.DS_Store
 .env
 .env.*
 .envrc
-.auth_token
 .git-credentials
-
-# Data
-data/
+.idea/
+.venv/
+.vscode/
+*.egg-info/
+*.log
+*.py[cod]
+*.pyc
+*.pyd
+*.pyo
+*.so
 *.sqlite3
-
-# Node (if present)
+build/
+data/
+dist/
+env/
+htmlcov/
+infra/docker/docker-compose.override.yml
 node_modules/
+pytest_cache/
+venv/
