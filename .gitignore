@@ -26,3 +26,21 @@ infra/docker/docker-compose.override.yml
 node_modules/
 pytest_cache/
 venv/
+# Local/test artifacts
+tts_*.mp3
+test_*.wav
+.tokens.out
+
+# Backups/snapshots
+*.bak
+*.bak.*
+*.autobak*
+*.orig
+*.pre_clean_bak
+
+# Build metadata
+*.egg-info/
+infra/docker/docker-compose.yml.bak*
+infra/docker/*.bak*
+apps/api/app/routers/ws_audio.py.bak*
+apps/api/app/routers/*.autobak*
