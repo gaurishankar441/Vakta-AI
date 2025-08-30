@@ -11,7 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install deps from root
-COPY requirements.txt /app/requirements.txt
+COPY apps/api/requirements.txt /app/requirements.txt
+RUN sed -i 's/[[:space:]]*#.*$//' /app/requirements.txt \
+    && sed -i '/^[[:space:]]*$/d' /app/requirements.txt
 RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
 # Copy API code only
