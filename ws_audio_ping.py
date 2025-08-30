@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 import argparse, asyncio, json, pathlib, os, websockets
 
+from contextlib import asynccontextmanager
+
+# -- version-adaptive websockets connect (11.x extra_headers vs 15.x headers) --
+@asynccontextmanager
+async def ws_connect_compat(url, headers=None):
+    import websockets
+    try:
+        # websockets 11–12
+        async with websockets.connect(url, extra_headers=headers, max_size=None) as _ws:
+            yield _ws
+    except TypeError:
+        # websockets 15+
+        async with websockets.connect(url, headers=headers, max_size=None) as _ws:
+            yield _ws
+
 def read_token(token_file: str | None) -> str:
     if os.getenv("TOK"):
         return os.environ["TOK"].strip()
@@ -25,7 +40,7 @@ async def run(url: str, token: str, use_query: bool):
     else:
         headers = {"Authorization": f"Bearer {token}"}
 
-    async with websockets.connect(url, extra_headers=headers, max_size=None) as ws:
+    async with ws_connect_compat(url, headers=headers) as ws:
         await wait_ready(ws)
         await ws.send(json.dumps({"type": "echo", "text": "ping"}))
         while True:
